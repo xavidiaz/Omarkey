@@ -1,0 +1,39 @@
+# systemd user service for omarkeyd.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp daemon/omarkeyd.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now omarkeyd.service
+#
+# The daemon needs the graphical session bus (for wl-copy / logind), so it is
+# wired to graphical-session.target rather than default.target.
+
+[Unit]
+Description=Omarkey credential daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omarkeyd
+Restart=on-failure
+RestartSec=2
+
+# Hardening. omarkeyd only needs to read the .kdbx, talk to the session bus,
+# and run wl-copy/wtype/pinentry.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%t
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Keep the decrypted vault out of swap and core dumps.
+LimitCORE=0
+
+[Install]
+WantedBy=graphical-session.target

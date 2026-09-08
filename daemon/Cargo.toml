@@ -1,0 +1,36 @@
+[package]
+name = "omarkeyd"
+version = "0.1.0"
+edition = "2021"
+description = "Daemon that holds a decrypted KeePass vault in RAM and serves credential copy/type requests to the Omarkey shell plugin over a Unix socket"
+license = "MIT"
+repository = "https://github.com/xavidiaz/omarkey"
+default-run = "omarkeyd"
+
+[[bin]]
+name = "omarkeyd"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+libc = "0.2"
+zeroize = { version = "1", features = ["derive"] }
+secrecy = { version = "0.10", features = ["serde"] }
+keepass = "0.7"
+totp-rs = "5"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+directories = "5"
+toml = "0.8"
+notify = "6"
+
+[profile.release]
+lto = true
+strip = true
+panic = "abort"

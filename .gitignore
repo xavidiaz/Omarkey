@@ -1,0 +1,6 @@
+/daemon/target/
+**/*.rs.bk
+*.kdbx
+*.kdbx.lock
+.direnv/
+result

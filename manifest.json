@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "omarkey",
+  "name": "Omarkey",
+  "version": "0.1.0",
+  "author": "Javier Diaz Urbano",
+  "license": "MIT",
+  "homepage": "https://github.com/xavidiaz/omarkey",
+  "description": "KeePass picker for Omarchy. Search entries and copy or type credentials; passwords are handled entirely by a separate omarkeyd daemon and never enter the shell process.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Menu.qml"
+  }
+}
