@@ -106,10 +106,16 @@ password. The vault re-locks on idle timeout, on session lock, and before sleep.
 
 ## Status
 
-Early. The daemon compiles (`cargo build` + `cargo clippy` clean) and serves the
-full protocol over the socket — verified with a smoke test covering
-hello/status/list/get/unlock/subscribe and clean SIGTERM shutdown. The one
-remaining stub is `daemon/src/vault.rs::open_kdbx`: wire it to the `keepass`
-crate (the intended shape is sketched in a comment there). The QML side is
-unproven against a live `omarchy-shell`. See [`PROTOCOL.md`](PROTOCOL.md) for the
-full IPC contract.
+The daemon is functional. `cargo build` / `cargo clippy` / `cargo test` are
+clean, and it has been driven end to end over the socket against a real `.kdbx`:
+`unlock` → `list` (fuzzy) → `get` → `copy` (with a verified clipboard wipe) →
+`totp` (parsed from the entry's `otpauth://` URI), plus clean SIGTERM shutdown.
+
+`daemon/src/vault.rs::open_kdbx` uses the pure-Rust
+[`keepass`](https://crates.io/crates/keepass) crate — **no dependency on
+KeePassXC** or any system library. `cargo run --example make-sample-vault --
+/tmp/demo.kdbx demopass` writes a throwaway database to test against.
+
+Not yet done: the QML side is unproven against a live `omarchy-shell`, and
+`unlock` via pinentry hasn't been exercised (only inline-password unlock). See
+[`PROTOCOL.md`](PROTOCOL.md) for the full IPC contract.

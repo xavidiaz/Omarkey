@@ -765,6 +765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f890332ea647f266e076bd418275f0d40514674d71575ef16e3aebbce6d205"
 dependencies = [
  "aes",
+ "base32",
  "base64 0.22.1",
  "block-modes",
  "byteorder",
@@ -782,7 +783,9 @@ dependencies = [
  "secstr",
  "sha2",
  "thiserror 2.0.20",
+ "totp-lite",
  "twofish",
+ "url",
  "uuid",
  "xml-rs",
  "zeroize",
@@ -954,6 +957,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "toml",
@@ -1500,6 +1504,18 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "totp-lite"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8e43134db17199f7f721803383ac5854edd0d3d523cc34dba321d6acfbe76c3"
+dependencies = [
+ "digest",
+ "hmac",
+ "sha1",
+ "sha2",
+]
 
 [[package]]
 name = "totp-rs"

@@ -19,7 +19,7 @@ futures-util = "0.3"
 libc = "0.2"
 zeroize = { version = "1", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
-keepass = "0.7"
+keepass = { version = "0.7", features = ["totp"] }
 totp-rs = { version = "5", features = ["otpauth"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 anyhow = "1"
@@ -29,6 +29,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "5"
 toml = "0.8"
 notify = "6"
+
+[dev-dependencies]
+# save_kdbx4 lets the tests build a database in memory to round-trip through
+# open_kdbx(); feature unification means it is also linked into the binary.
+keepass = { version = "0.7", features = ["totp", "save_kdbx4"] }
+tempfile = "3"
 
 [profile.release]
 lto = true
