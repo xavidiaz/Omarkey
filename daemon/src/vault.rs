@@ -166,7 +166,13 @@ impl VaultState {
                     out.insert("group".into(), json!(entry.group));
                 }
                 other => {
-                    out.insert(other.to_string(), json!(entry.string_fields.get(other)));
+                    // Custom string fields can be KeePass-protected; until the
+                    // protected flag is tracked, treat them all as secret and
+                    // refuse to hand them back through `get`.
+                    let _ = &entry.string_fields;
+                    return Err(IpcError::Unsupported(format!(
+                        "custom field `{other}` is not exposed via get; use copy or type"
+                    )));
                 }
             }
         }
@@ -387,6 +393,7 @@ pub enum TypeTokenRef<'a> {
 
 // ---------------------------------------------------------------- kdbx loading
 
+#[allow(dead_code)] // WrongKey is produced once open_kdbx() is wired up
 enum KdbxError {
     WrongKey,
     Other(String),

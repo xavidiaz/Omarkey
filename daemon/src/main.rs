@@ -87,38 +87,44 @@ async fn main() -> Result<()> {
     // Background: watch the .kdbx file for external edits.
     tokio::spawn(vault::watch_vault_file(daemon.clone()));
 
-    // Clean shutdown: lock the vault, then remove the socket.
-    let shutdown = {
-        let daemon = daemon.clone();
-        let socket_path = socket_path.clone();
-        async move {
-            security::wait_for_shutdown_signal().await;
-            info!("shutting down");
-            daemon.vault.lock().await.lock_now(&daemon, ipc::LockReason::Manual);
-            let _ = std::fs::remove_file(&socket_path);
-        }
-    };
-    tokio::spawn(shutdown);
+    // Accept connections until a shutdown signal arrives, then lock the vault
+    // and remove the socket on the way out.
+    let accept_loop = async {
+        loop {
+            let (stream, _addr) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(err) => {
+                    error!(%err, "accept failed");
+                    continue;
+                }
+            };
 
-    loop {
-        let (stream, _addr) = match listener.accept().await {
-            Ok(pair) => pair,
-            Err(err) => {
-                error!(%err, "accept failed");
+            if let Err(err) = security::verify_peer(&stream) {
+                warn!(%err, "rejecting connection from unexpected peer");
                 continue;
             }
-        };
 
-        if let Err(err) = security::verify_peer(&stream) {
-            warn!(%err, "rejecting connection from unexpected peer");
-            continue;
+            let daemon = daemon.clone();
+            tokio::spawn(async move {
+                if let Err(err) = ipc::serve_connection(daemon, stream).await {
+                    warn!(%err, "connection ended with error");
+                }
+            });
         }
+    };
 
-        let daemon = daemon.clone();
-        tokio::spawn(async move {
-            if let Err(err) = ipc::serve_connection(daemon, stream).await {
-                warn!(%err, "connection ended with error");
-            }
-        });
+    tokio::select! {
+        _ = accept_loop => {}
+        _ = security::wait_for_shutdown_signal() => {
+            info!("shutting down");
+        }
     }
+
+    daemon
+        .vault
+        .lock()
+        .await
+        .lock_now(&daemon, ipc::LockReason::Manual);
+    let _ = std::fs::remove_file(&socket_path);
+    Ok(())
 }
