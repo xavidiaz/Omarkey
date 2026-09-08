@@ -106,6 +106,10 @@ password. The vault re-locks on idle timeout, on session lock, and before sleep.
 
 ## Status
 
-Early. The daemon skeleton compiles-shaped but `daemon/src/vault.rs::open_kdbx`
-is still a stub — wire it to the `keepass` crate version you pin. See
-[`PROTOCOL.md`](PROTOCOL.md) for the full IPC contract.
+Early. The daemon compiles (`cargo build` + `cargo clippy` clean) and serves the
+full protocol over the socket — verified with a smoke test covering
+hello/status/list/get/unlock/subscribe and clean SIGTERM shutdown. The one
+remaining stub is `daemon/src/vault.rs::open_kdbx`: wire it to the `keepass`
+crate (the intended shape is sketched in a comment there). The QML side is
+unproven against a live `omarchy-shell`. See [`PROTOCOL.md`](PROTOCOL.md) for the
+full IPC contract.
