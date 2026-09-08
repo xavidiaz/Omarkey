@@ -1,6 +1,15 @@
+# Rust / Cargo
 /daemon/target/
+debug/
 **/*.rs.bk
+*.pdb
+**/mutants.out*/
+
+# Secrets — never commit a real vault
 *.kdbx
 *.kdbx.lock
+
+# Editors / env
 .direnv/
 result
+.idea/
