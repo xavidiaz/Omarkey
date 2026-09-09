@@ -59,6 +59,11 @@ Item {
         : reason === "sleep" ? "Locked before sleep"
         : "Vault locked"
     }
+    onVaultSwitched: name => {
+      resultModel.clear()
+      if (root.opened)
+        root.statusLine = "Switched to " + name + "  ·  Press Enter to unlock"
+    }
     onVaultChanged: if (root.opened && !client.locked) root.refresh()
     onConnectionChanged: up => {
       if (!root.opened) return
@@ -335,10 +340,25 @@ Item {
           radius: root.cornerRadius
           color: "transparent"
 
+          // Active database name, shown only when more than one is configured.
+          // Switching is done from the CLI (`omarkey use <name>`) for now.
+          Text {
+            id: vaultLabel
+            visible: client.vaultNames.length > 1 && client.activeVault !== ""
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: "󰋊 " + client.activeVault
+            color: root.foreground
+            opacity: 0.45
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
           Text {
             textFormat: Text.PlainText
             anchors.left: parent.left
-            anchors.right: parent.right
+            anchors.right: vaultLabel.visible ? vaultLabel.left : parent.right
+            anchors.rightMargin: vaultLabel.visible ? Style.spacing.md : 0
             anchors.verticalCenter: parent.verticalCenter
             text: root.filterText || (client.locked ? "Vault locked" : "Search entries…")
             color: root.foreground

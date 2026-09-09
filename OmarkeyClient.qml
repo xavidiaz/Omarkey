@@ -18,13 +18,15 @@ Item {
   readonly property bool connected: sock.connected
   property bool locked: true
   property int entryCount: 0
-  property string vaultPath: ""
+  property string activeVault: ""                  // name of the active database
+  property var vaultNames: []                      // all configured database names
   property string daemonVersion: ""
   property string lastError: ""
 
   // Emitted for daemon events (see PROTOCOL.md).
   signal unlockedChanged(int entryCount)          // vault -> unlocked
   signal lockedByDaemon(string reason)            // vault -> locked
+  signal vaultSwitched(string name)               // active database changed
   signal vaultChanged()                           // .kdbx changed on disk
   signal clipboardCleared(string uuid, string field)
   signal connectionChanged(bool up)
@@ -53,12 +55,15 @@ Item {
   function hello(cb)                { return _send("hello", null, cb) }
   function status(cb)               { return _send("status", null, cb) }
   function unlock(cb)               { return _send("unlock", null, cb) }
+  function unlockVault(name, cb)    { return _send("unlock", { vault: name }, cb) }
   function unlockInline(password, keyfile, cb) {
     var a = { password: password }
     if (keyfile) a.keyfile = keyfile
     return _send("unlock", a, cb)
   }
   function lock(cb)                 { return _send("lock", null, cb) }
+  function vaults(cb)              { return _send("vaults", null, cb) }
+  function useVault(name, cb)      { return _send("use", { vault: name }, cb) }
   function list(query, limit, cb)  { return _send("list", { query: query || "", limit: limit || 200 }, cb) }
   function get(uuid, fields, cb)    { return _send("get", { uuid: uuid, fields: fields }, cb) }
   function copyField(uuid, field, clearAfterMs, cb) {
@@ -108,7 +113,10 @@ Item {
       if (r.locked !== undefined) root.locked = r.locked
       if (r.unlocked !== undefined) root.locked = !r.unlocked
       if (r.entryCount !== undefined) root.entryCount = r.entryCount
-      if (r.vaultPath !== undefined) root.vaultPath = r.vaultPath
+      if (r.vault !== undefined) root.activeVault = r.vault
+      if (r.vaults !== undefined && Array.isArray(r.vaults)
+          && (r.vaults.length === 0 || typeof r.vaults[0] === "string"))
+        root.vaultNames = r.vaults
       if (r.daemonVersion !== undefined) root.daemonVersion = r.daemonVersion
     }
   }
@@ -118,11 +126,17 @@ Item {
     case "unlocked":
       root.locked = false
       if (msg.entryCount !== undefined) root.entryCount = msg.entryCount
+      if (msg.vault !== undefined) root.activeVault = msg.vault
       root.unlockedChanged(root.entryCount)
       break
     case "locked":
       root.locked = true
       root.lockedByDaemon(msg.reason || "unknown")
+      break
+    case "vault-switched":
+      root.locked = true
+      if (msg.name !== undefined) root.activeVault = msg.name
+      root.vaultSwitched(msg.name || "")
       break
     case "vault-changed":
       root.vaultChanged()

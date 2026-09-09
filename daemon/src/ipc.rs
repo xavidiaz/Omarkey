@@ -110,11 +110,16 @@ impl IpcError {
 #[serde(tag = "event", rename_all = "kebab-case")]
 pub enum Event {
     Unlocked {
+        vault: String,
         #[serde(rename = "entryCount")]
         entry_count: usize,
     },
     Locked {
         reason: LockReason,
+    },
+    /// The active database changed (it is left locked).
+    VaultSwitched {
+        name: String,
     },
     VaultChanged {},
     ClipboardCleared {
@@ -197,12 +202,19 @@ async fn dispatch(
     match req.op.as_str() {
         "hello" => {
             let vault = daemon.vault.lock().await;
+            let names: Vec<&str> = daemon
+                .config
+                .vaults
+                .iter()
+                .map(|v| v.name.as_str())
+                .collect();
             Ok(json!({
                 "daemonVersion": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
-                "vaultPath": daemon.config.vault_path.to_string_lossy(),
+                "vault": vault.active_name(&daemon.config),
+                "vaults": names,
                 "locked": vault.is_locked(),
-                "capabilities": ["copy", "type", "totp", "pinentry"],
+                "capabilities": ["copy", "type", "totp", "pinentry", "multi-vault"],
             }))
         }
 
@@ -211,14 +223,27 @@ async fn dispatch(
             Ok(json!({
                 "locked": vault.is_locked(),
                 "entryCount": vault.entry_count(),
-                "vaultPath": daemon.config.vault_path.to_string_lossy(),
+                "vault": vault.active_name(&daemon.config),
                 "idleLockInSec": daemon.activity.remaining_lock_secs(&daemon.config),
             }))
+        }
+
+        "vaults" => {
+            let vault = daemon.vault.lock().await;
+            Ok(json!({ "vaults": vault.overview(&daemon.config) }))
+        }
+
+        "use" => {
+            let name = require_str(req, "vault")?.to_string();
+            let mut vault = daemon.vault.lock().await;
+            vault.switch_to(daemon, &name)?;
+            Ok(json!({ "vault": name, "locked": true }))
         }
 
         "unlock" => {
             let password = req.args.get("password").and_then(Value::as_str);
             let keyfile = req.args.get("keyfile").and_then(Value::as_str);
+            let which = req.args.get("vault").and_then(Value::as_str);
             if password.is_some() && !daemon.config.allow_inline_unlock {
                 return Err(IpcError::Unsupported(
                     "inline-password unlock is disabled; enable allow_inline_unlock or use pinentry"
@@ -226,8 +251,8 @@ async fn dispatch(
                 ));
             }
             let mut vault = daemon.vault.lock().await;
-            let count = vault.unlock(daemon, password, keyfile).await?;
-            Ok(json!({ "unlocked": true, "entryCount": count }))
+            let (name, count) = vault.unlock(daemon, which, password, keyfile).await?;
+            Ok(json!({ "unlocked": true, "entryCount": count, "vault": name }))
         }
 
         "lock" => {

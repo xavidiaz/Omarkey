@@ -1,12 +1,28 @@
 # Copy to ~/.config/omarkey/omarkeyd.toml and edit.
 
-# Absolute path to your KeePass database. Required.
+# --- One database -----------------------------------------------------------
+# Absolute path (or ~/…) to your KeePass database.
 vault = "~/secrets.kdbx"
-
 # Optional key file that pairs with the master password.
 # keyfile = "~/.config/omarkey/secrets.keyx"
 
-# Lock the vault after this many seconds with no requests. 0 disables it.
+# --- Several databases ----------------------------------------------------
+# Instead of the `vault`/`keyfile` lines above, list one [[vault]] table per
+# database. One is unlocked at a time; `omarkey use <name>` / `omarkey unlock
+# <name>` switch between them. The first entry is active at startup. `name`
+# defaults to the file stem if omitted.
+#
+#   [[vault]]
+#   name = "personal"
+#   path = "~/personal.kdbx"
+#
+#   [[vault]]
+#   name = "work"
+#   path = "~/work.kdbx"
+#   keyfile = "~/work.keyx"
+
+# --- Options (apply to all databases) -------------------------------------
+# Lock the active vault after this many seconds with no requests. 0 disables it.
 idle_lock_seconds = 300
 
 # How long a copied secret stays on the clipboard before omarkeyd wipes it.

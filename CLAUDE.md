@@ -31,6 +31,10 @@ any change to `daemon/src/ipc.rs` or `OmarkeyClient.qml`.
   locked screen where Enter calls `dismiss()` *then* `client.unlock()`.
 - Decrypted data lives only in `vault::UnlockedVault`, wrapped in
   `secrecy::SecretString` so it zeroizes on drop. Every lock path drops it.
+- **One database unlocked at a time.** `vault::VaultManager` holds the active
+  index + the `VaultState` for that one database. Switching (`use` / `unlock
+  <name>`) locks the current before changing `active`. Config is `vault = "…"`
+  (single) or `[[vault]]` tables (multi, each with `name`/`path`/`keyfile`).
 - The plugin `kind` is **`overlay`**, NOT `menu`. `menu` is Omarchy's built-in
   JSONC command menu. Model the UI on the first-party `emojis` / `clipboard`
   overlays (`/usr/share/omarchy/shell/plugins/`).
@@ -46,8 +50,9 @@ daemon/
   src/main.rs          socket bind + hardening, accept loop, select! on shutdown
   src/config.rs        ~/.config/omarkey/omarkeyd.toml
   src/ipc.rs           Request/Response/Event types + dispatch for every op
-  src/vault.rs         VaultState (Locked/Unlocking/Unlocked), keepass parsing,
-                       fuzzy list, .kdbx file watch, tests
+  src/vault.rs         VaultManager (active db + switching) wrapping VaultState
+                       (Locked/Unlocking/Unlocked), keepass parsing, fuzzy list,
+                       .kdbx file watch, tests
   src/security.rs      socket perms + peer-uid check, idle clock, logind
                        session resolution + Lock/PrepareForSleep auto-lock,
                        pinentry (Assuan)

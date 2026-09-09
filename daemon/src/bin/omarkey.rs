@@ -22,21 +22,34 @@ fn main() -> ExitCode {
     let cmd = args.first().map(String::as_str).unwrap_or("status");
 
     let request = match cmd {
-        "unlock" => json!({ "id": 1, "op": "unlock" }),
+        "unlock" => match args.get(1) {
+            Some(name) => json!({ "id": 1, "op": "unlock", "vault": name }),
+            None => json!({ "id": 1, "op": "unlock" }),
+        },
         "lock" => json!({ "id": 1, "op": "lock" }),
         "status" => json!({ "id": 1, "op": "status" }),
         "hello" => json!({ "id": 1, "op": "hello" }),
+        "vaults" => json!({ "id": 1, "op": "vaults" }),
+        "use" => match args.get(1) {
+            Some(name) => json!({ "id": 1, "op": "use", "vault": name }),
+            None => {
+                eprintln!("omarkey: use <name> — which vault? (see: omarkey vaults)");
+                return ExitCode::from(2);
+            }
+        },
         "list" => {
             json!({ "id": 1, "op": "list", "query": args.get(1).cloned().unwrap_or_default() })
         }
         "-h" | "--help" | "help" => {
             eprintln!(
                 "omarkey <command>\n\n  \
-                 unlock        decrypt the vault (daemon shows pinentry)\n  \
-                 lock          drop the vault from memory\n  \
-                 status        print JSON state\n  \
-                 list [query]  print matching entry metadata\n  \
-                 hello         handshake\n\n\
+                 unlock [name]  decrypt a database (daemon shows pinentry)\n  \
+                 use <name>     switch the active database (locks the current)\n  \
+                 vaults         list configured databases\n  \
+                 lock           drop the vault from memory\n  \
+                 status         print JSON state\n  \
+                 list [query]   print matching entry metadata\n  \
+                 hello          handshake\n\n\
                  socket: $OMARKEY_SOCKET or $XDG_RUNTIME_DIR/omarkey.sock"
             );
             return ExitCode::SUCCESS;

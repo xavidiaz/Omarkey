@@ -16,10 +16,128 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, VaultConfig};
 use crate::ipc::{Event, IpcError, LockReason};
 use crate::security::pinentry;
 use crate::Daemon;
+
+// ---------------------------------------------------------------- manager
+
+/// Which configured database is active, plus its lock state. Only one database
+/// is unlocked at a time — switching locks the previous one.
+pub struct VaultManager {
+    active: usize,
+    state: VaultState,
+}
+
+impl VaultManager {
+    pub fn new(_config: &Config) -> Self {
+        VaultManager {
+            active: 0,
+            state: VaultState::Locked,
+        }
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.state.is_locked()
+    }
+
+    pub fn entry_count(&self) -> usize {
+        self.state.entry_count()
+    }
+
+    pub fn active_name<'a>(&self, config: &'a Config) -> &'a str {
+        &config.vaults[self.active].name
+    }
+
+    fn active_cfg<'a>(&self, config: &'a Config) -> &'a VaultConfig {
+        &config.vaults[self.active]
+    }
+
+    /// One row per configured database for the `vaults` op.
+    pub fn overview(&self, config: &Config) -> Vec<serde_json::Value> {
+        config
+            .vaults
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                json!({
+                    "name": v.name,
+                    "path": v.path.to_string_lossy(),
+                    "active": i == self.active,
+                    "locked": i != self.active || self.state.is_locked(),
+                })
+            })
+            .collect()
+    }
+
+    /// Make `name` the active database. Locks whatever was unlocked. Idempotent.
+    pub fn switch_to(&mut self, daemon: &Arc<Daemon>, name: &str) -> Result<(), IpcError> {
+        let idx = daemon
+            .config
+            .vault_index(name)
+            .map_err(IpcError::NotFound)?;
+        if idx == self.active {
+            return Ok(());
+        }
+        self.state.lock_now(daemon, LockReason::Manual);
+        self.active = idx;
+        daemon.emit(Event::VaultSwitched {
+            name: name.to_string(),
+        });
+        info!(vault = name, "active vault switched");
+        Ok(())
+    }
+
+    /// Decrypt a database into RAM. `requested` names which one; `None` keeps the
+    /// active one. Switching to a different database locks the current first.
+    /// Returns `(active_name, entry_count)`.
+    pub async fn unlock(
+        &mut self,
+        daemon: &Arc<Daemon>,
+        requested: Option<&str>,
+        password: Option<&str>,
+        keyfile_override: Option<&str>,
+    ) -> Result<(String, usize), IpcError> {
+        if let Some(name) = requested {
+            self.switch_to(daemon, name)?;
+        }
+        let vault_cfg = self.active_cfg(&daemon.config).clone();
+        let count = self
+            .state
+            .unlock(daemon, &vault_cfg, password, keyfile_override)
+            .await?;
+        Ok((vault_cfg.name, count))
+    }
+
+    pub fn lock_now(&mut self, daemon: &Arc<Daemon>, reason: LockReason) {
+        self.state.lock_now(daemon, reason);
+    }
+
+    pub fn list(&self, query: &str, limit: usize) -> Result<Vec<EntryMeta>, IpcError> {
+        self.state.list(query, limit)
+    }
+
+    pub fn get_fields(&self, uuid: &str, fields: &[String]) -> Result<Value, IpcError> {
+        self.state.get_fields(uuid, fields)
+    }
+
+    pub fn secret_for(&self, uuid: &str, field: &CopyField) -> Result<SecretString, IpcError> {
+        self.state.secret_for(uuid, field)
+    }
+
+    pub fn resolve_type_sequence(
+        &self,
+        uuid: &str,
+        sequence: &str,
+    ) -> Result<Vec<TypeToken>, IpcError> {
+        self.state.resolve_type_sequence(uuid, sequence)
+    }
+
+    pub fn totp_meta(&self, uuid: &str) -> Result<Value, IpcError> {
+        self.state.totp_meta(uuid)
+    }
+}
 
 // ---------------------------------------------------------------- state
 
@@ -31,10 +149,6 @@ pub enum VaultState {
 }
 
 impl VaultState {
-    pub fn locked(_config: &Config) -> Self {
-        VaultState::Locked
-    }
-
     pub fn is_locked(&self) -> bool {
         !matches!(self, VaultState::Unlocked(_))
     }
@@ -53,12 +167,13 @@ impl VaultState {
         }
     }
 
-    /// Decrypt the vault. `password`/`keyfile` come from the request only when
+    /// Decrypt `vault_cfg`. `password`/`keyfile` come from the request only when
     /// inline unlock is enabled; otherwise the master password is collected by
     /// the daemon's own pinentry.
-    pub async fn unlock(
+    async fn unlock(
         &mut self,
         daemon: &Arc<Daemon>,
+        vault_cfg: &VaultConfig,
         password: Option<&str>,
         keyfile_override: Option<&str>,
     ) -> Result<usize, IpcError> {
@@ -69,15 +184,18 @@ impl VaultState {
         }
         *self = VaultState::Unlocking;
 
-        let result = Self::do_unlock(daemon, password, keyfile_override).await;
+        let result = Self::do_unlock(daemon, vault_cfg, password, keyfile_override).await;
 
         match result {
             Ok(unlocked) => {
                 let count = unlocked.entries.len();
                 *self = VaultState::Unlocked(unlocked);
                 daemon.activity.touch();
-                daemon.emit(Event::Unlocked { entry_count: count });
-                info!(entries = count, "vault unlocked");
+                daemon.emit(Event::Unlocked {
+                    vault: vault_cfg.name.clone(),
+                    entry_count: count,
+                });
+                info!(vault = %vault_cfg.name, entries = count, "vault unlocked");
                 Ok(count)
             }
             Err(err) => {
@@ -89,26 +207,23 @@ impl VaultState {
 
     async fn do_unlock(
         daemon: &Arc<Daemon>,
+        vault_cfg: &VaultConfig,
         password: Option<&str>,
         keyfile_override: Option<&str>,
     ) -> Result<UnlockedVault, IpcError> {
-        let config = &daemon.config;
-
         let secret: SecretString = match password {
             Some(p) => SecretString::from(p.to_owned()),
-            None => pinentry::prompt_master_password(config)
+            None => pinentry::prompt_master_password(&daemon.config, vault_cfg)
                 .await
                 .map_err(|e| IpcError::IoError(format!("pinentry: {e}")))?,
         };
 
         let keyfile = keyfile_override
             .map(std::path::PathBuf::from)
-            .or_else(|| config.keyfile_path.clone());
+            .or_else(|| vault_cfg.keyfile.clone());
 
-        // NOTE: exact `keepass` API surface depends on the crate version; this
-        // is the shape (open with key elements, walk the group tree).
         let entries =
-            open_kdbx(&config.vault_path, &secret, keyfile.as_deref()).map_err(|e| match e {
+            open_kdbx(&vault_cfg.path, &secret, keyfile.as_deref()).map_err(|e| match e {
                 KdbxError::WrongKey => IpcError::AuthFailed,
                 KdbxError::Other(msg) => IpcError::VaultError(msg),
             })?;
@@ -544,10 +659,10 @@ pub async fn watch_vault_file(daemon: Arc<Daemon>) {
         }
     };
 
-    let path = daemon.config.vault_path.clone();
-    if let Err(err) = watcher.watch(&path, RecursiveMode::NonRecursive) {
-        warn!(%err, "cannot watch vault file");
-        return;
+    for vault in &daemon.config.vaults {
+        if let Err(err) = watcher.watch(&vault.path, RecursiveMode::NonRecursive) {
+            warn!(vault = %vault.name, %err, "cannot watch vault file");
+        }
     }
 
     let mut debounce = tokio::time::interval(Duration::from_millis(500));
@@ -692,5 +807,32 @@ mod tests {
         let locked = VaultState::Locked;
         assert!(locked.list("", 10).is_err());
         assert!(locked.secret_for("x", &CopyField::Password).is_err());
+    }
+
+    #[test]
+    fn manager_tracks_active_vault_and_overview() {
+        let config = Config::from_toml_str(
+            r#"
+            [[vault]]
+            name = "personal"
+            path = "/x/personal.kdbx"
+            [[vault]]
+            name = "work"
+            path = "/x/work.kdbx"
+            "#,
+        )
+        .unwrap();
+
+        let mgr = VaultManager::new(&config);
+        assert_eq!(mgr.active_name(&config), "personal");
+        assert!(mgr.is_locked());
+
+        let rows = mgr.overview(&config);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "personal");
+        assert_eq!(rows[0]["active"], true);
+        assert_eq!(rows[0]["locked"], true); // active but not unlocked
+        assert_eq!(rows[1]["name"], "work");
+        assert_eq!(rows[1]["active"], false);
     }
 }

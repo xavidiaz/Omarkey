@@ -251,11 +251,14 @@ pub mod pinentry {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::process::Command;
 
-    use crate::config::Config;
+    use crate::config::{Config, VaultConfig};
 
-    /// Drive an Assuan `pinentry` to collect the master password. The password
-    /// is read from pinentry's stdout and never touches a shell argument.
-    pub async fn prompt_master_password(config: &Config) -> Result<SecretString> {
+    /// Drive an Assuan `pinentry` to collect the master password for `vault`. The
+    /// password is read from pinentry's stdout and never touches a shell argument.
+    pub async fn prompt_master_password(
+        config: &Config,
+        vault: &VaultConfig,
+    ) -> Result<SecretString> {
         let program = config
             .pinentry_program
             .clone()
@@ -274,16 +277,16 @@ pub mod pinentry {
         // First line is the greeting.
         let _ = stdout.next_line().await?;
 
-        let vault_name = config
-            .vault_path
+        let file_name = vault
+            .path
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "vault".into());
+            .unwrap_or_else(|| vault.name.clone());
 
         for cmd in [
-            "SETTITLE Omarkey".to_string(),
-            "SETDESC Unlock the KeePass vault".to_string(),
-            format!("SETPROMPT {vault_name}:"),
+            format!("SETTITLE Omarkey — {}", vault.name),
+            format!("SETDESC Unlock the KeePass vault ({file_name})"),
+            format!("SETPROMPT {}:", vault.name),
             "GETPIN".to_string(),
         ] {
             stdin.write_all(cmd.as_bytes()).await?;

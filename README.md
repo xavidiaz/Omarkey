@@ -96,7 +96,14 @@ lock, and before sleep.
 | Ctrl+L | lock the vault now |
 | Esc | clear filter, then close |
 
-**CLI** (`omarkey`): `unlock`, `lock`, `status`, `list [query]`, `hello`.
+**Multiple databases**: list several `[[vault]]` tables in the config (see
+`daemon/omarkeyd.example.toml`). One is unlocked at a time. `omarkey vaults`
+lists them; `omarkey use <name>` switches (locking the current); `omarkey
+unlock <name>` switches and unlocks. The picker shows the active database's
+name in the corner.
+
+**CLI** (`omarkey`): `unlock [name]`, `use <name>`, `vaults`, `lock`, `status`,
+`list [query]`, `hello`.
 
 ## Security notes
 

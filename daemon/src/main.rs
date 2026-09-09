@@ -19,12 +19,12 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::ipc::Event;
-use crate::vault::VaultState;
+use crate::vault::VaultManager;
 
 /// Shared handle every connection task clones.
 pub struct Daemon {
     pub config: Config,
-    pub vault: Mutex<VaultState>,
+    pub vault: Mutex<VaultManager>,
     /// Fan-out of daemon events to subscribed connections.
     pub events: broadcast::Sender<Event>,
     /// Bumped on any vault access; the idle-lock task watches it.
@@ -49,7 +49,8 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::load().context("loading configuration")?;
-    info!(vault = %config.vault_path.display(), "starting omarkeyd");
+    let vault_names: Vec<&str> = config.vaults.iter().map(|v| v.name.as_str()).collect();
+    info!(vaults = ?vault_names, "starting omarkeyd");
 
     let socket_path = security::socket_path(&config)?;
     security::preflight_runtime_dir(&socket_path)
@@ -66,7 +67,7 @@ async fn main() -> Result<()> {
 
     let (events_tx, _) = broadcast::channel::<Event>(64);
     let daemon = Arc::new(Daemon {
-        vault: Mutex::new(VaultState::locked(&config)),
+        vault: Mutex::new(VaultManager::new(&config)),
         activity: security::ActivityClock::new(),
         clipboard: actions::Clipboard::new(),
         events: events_tx,

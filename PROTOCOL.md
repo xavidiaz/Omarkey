@@ -14,8 +14,9 @@ JSON** over a Unix domain socket.
   vault state (locked/unlocked) is process-global.
 
 Two clients ship: `OmarkeyClient.qml` (the picker's bridge) and the `omarkey`
-CLI (`unlock`, `lock`, `status`, `list [query]`, `hello`), which is what a
-keybind or login hook uses to unlock.
+CLI (`unlock [name]`, `use <name>`, `vaults`, `lock`, `status`, `list [query]`,
+`hello`), which is what a keybind or login hook uses to unlock and switch
+databases.
 
 ## Message shapes
 
@@ -67,9 +68,10 @@ No `id`. Sent only to connections that issued `subscribe`.
 
 | event                | payload                                   | when                                      |
 |----------------------|-------------------------------------------|-------------------------------------------|
-| `unlocked`           | `{ "entryCount": 214 }`                   | vault transitioned locked → unlocked      |
-| `locked`             | `{ "reason": "idle" \| "manual" \| "session-lock" \| "sleep" }` | vault cleared from RAM |
-| `vault-changed`      | `{}`                                      | `.kdbx` on disk changed; reload suggested |
+| `unlocked`           | `{ "vault": "personal", "entryCount": 214 }` | a database transitioned locked → unlocked |
+| `locked`             | `{ "reason": "idle" \| "manual" \| "session-lock" \| "sleep" }` | the active database was cleared from RAM |
+| `vault-switched`     | `{ "name": "work" }`                      | the active database changed (left locked) |
+| `vault-changed`      | `{}`                                      | a `.kdbx` on disk changed; reload suggested |
 | `clipboard-cleared`  | `{ "uuid": "…", "field": "password" }`    | a scheduled clipboard wipe fired          |
 
 ## Operations
@@ -85,11 +87,13 @@ Result:
 {
   "daemonVersion": "0.1.0",
   "protocol": 1,
-  "vaultPath": "/home/user/secrets.kdbx",
+  "vault": "personal",
+  "vaults": ["personal", "work"],
   "locked": true,
-  "capabilities": ["copy", "type", "totp", "pinentry"]
+  "capabilities": ["copy", "type", "totp", "pinentry", "multi-vault"]
 }
 ```
+- `vault` — name of the active database. `vaults` — every configured name.
 
 ### `status`
 
@@ -97,16 +101,43 @@ Current state. Safe before unlock.
 
 Result:
 ```json
-{ "locked": false, "entryCount": 214, "vaultPath": "…", "idleLockInSec": 240 }
+{ "locked": false, "entryCount": 214, "vault": "personal", "idleLockInSec": 240 }
 ```
+
+### `vaults`
+
+List configured databases. Safe before unlock.
+
+Result:
+```json
+{
+  "vaults": [
+    { "name": "personal", "path": "/home/u/personal.kdbx", "active": true,  "locked": false },
+    { "name": "work",     "path": "/home/u/work.kdbx",     "active": false, "locked": true  }
+  ]
+}
+```
+
+### `use`
+
+Make a different database active. Locks whatever was unlocked; the new one
+starts locked. Idempotent.
+
+Request: `{ "id": 4, "op": "use", "vault": "work" }`
+Result: `{ "vault": "work", "locked": true }`
+Errors: `not-found` (no such vault name).
+
+Emits `vault-switched`.
 
 ### `unlock`
 
-Decrypt the vault into RAM.
+Decrypt a database into RAM.
 
 Request: `{ "id": 3, "op": "unlock" }`
 - Default: `omarkeyd` spawns its own `pinentry` to collect the master password.
   The password never crosses the socket.
+- Optional `{ "vault": "work" }` — unlock a database other than the active one.
+  Switches the active database first (locking whatever was unlocked).
 - Optional `{ "password": "…", "keyfile": "/path" }` — inline unlock for headless
   setups. Discouraged; only honoured when `allow_inline_unlock = true` in the
   daemon config.
@@ -116,10 +147,10 @@ fullscreen layer-shell overlay would render on top of the pinentry prompt.
 Unlock is triggered from the `omarkey unlock` CLI, or from the picker's locked
 screen which closes the overlay first. Any client may still call it.
 
-Result: `{ "unlocked": true, "entryCount": 214 }`
-Errors: `auth-failed`, `vault-error`, `busy`.
+Result: `{ "unlocked": true, "entryCount": 214, "vault": "personal" }`
+Errors: `auth-failed`, `vault-error`, `busy`, `not-found` (bad `vault` name).
 
-Emits `unlocked` to subscribers.
+Emits `unlocked` (and `vault-switched` first, if `vault` named a different one).
 
 ### `lock`
 
