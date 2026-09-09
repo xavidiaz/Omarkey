@@ -26,7 +26,13 @@ fn main() {
 &issuer=GitHub&algorithm=SHA1&digits=6&period=30",
         ),
     ));
-    dev.add_child(entry("GitLab", "octocat", "https://gitlab.com", "s3cr3t-gl", None));
+    dev.add_child(entry(
+        "GitLab",
+        "octocat",
+        "https://gitlab.com",
+        "s3cr3t-gl",
+        None,
+    ));
     db.root.add_child(dev);
 
     db.root.add_child(entry(
@@ -46,12 +52,17 @@ fn main() {
 
 fn entry(title: &str, user: &str, url: &str, pass: &str, otp: Option<&str>) -> Entry {
     let mut e = Entry::new();
-    e.fields.insert("Title".into(), Value::Unprotected(title.into()));
-    e.fields.insert("UserName".into(), Value::Unprotected(user.into()));
-    e.fields.insert("URL".into(), Value::Unprotected(url.into()));
-    e.fields.insert("Password".into(), Value::Protected(pass.as_bytes().into()));
+    e.fields
+        .insert("Title".into(), Value::Unprotected(title.into()));
+    e.fields
+        .insert("UserName".into(), Value::Unprotected(user.into()));
+    e.fields
+        .insert("URL".into(), Value::Unprotected(url.into()));
+    e.fields
+        .insert("Password".into(), Value::Protected(pass.as_bytes().into()));
     if let Some(otp) = otp {
-        e.fields.insert("otp".into(), Value::Protected(otp.as_bytes().into()));
+        e.fields
+            .insert("otp".into(), Value::Protected(otp.as_bytes().into()));
     }
     e
 }

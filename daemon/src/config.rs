@@ -47,8 +47,9 @@ impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         let raw: RawConfig = match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text)
-                .with_context(|| format!("parsing {}", path.display()))?,
+            Ok(text) => {
+                toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
+            }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 bail!(
                     "no config at {}. Create it with at least:\n\n  vault = \"/home/you/secrets.kdbx\"\n",

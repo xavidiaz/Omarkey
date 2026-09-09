@@ -32,8 +32,7 @@ pub fn preflight_runtime_dir(socket_path: &Path) -> Result<()> {
     let dir = socket_path
         .parent()
         .context("socket path has no parent directory")?;
-    let meta = std::fs::metadata(dir)
-        .with_context(|| format!("stat {}", dir.display()))?;
+    let meta = std::fs::metadata(dir).with_context(|| format!("stat {}", dir.display()))?;
     if !meta.is_dir() {
         bail!("{} is not a directory", dir.display());
     }
@@ -43,7 +42,10 @@ pub fn preflight_runtime_dir(socket_path: &Path) -> Result<()> {
     }
     let mode = meta.permissions().mode() & 0o777;
     if mode & 0o022 != 0 {
-        bail!("{} is writable by group or other (mode {mode:o})", dir.display());
+        bail!(
+            "{} is writable by group or other (mode {mode:o})",
+            dir.display()
+        );
     }
     Ok(())
 }
@@ -156,9 +158,7 @@ pub async fn logind_lock_task(
     )
     .await?;
 
-    let pid = std::process::id();
-    let session_path: zbus::zvariant::OwnedObjectPath =
-        manager.call("GetSessionByPID", &(pid)).await?;
+    let session_path = resolve_session_path(&manager).await?;
     info!(session = %session_path.as_str(), "watching logind session for Lock");
 
     let session = zbus::Proxy::new(
@@ -195,6 +195,40 @@ pub async fn logind_lock_task(
             }
         }
     })
+}
+
+/// Find our logind session object path. `GetSessionByPID` fails when the daemon
+/// runs in the `user@.service` manager scope (systemd --user unit) rather than
+/// the session scope, so try `$XDG_SESSION_ID` first and fall back to scanning
+/// `ListSessions` for this uid's seated session.
+async fn resolve_session_path(
+    manager: &zbus::Proxy<'_>,
+) -> Result<zbus::zvariant::OwnedObjectPath> {
+    if let Ok(id) = std::env::var("XDG_SESSION_ID") {
+        if let Ok(path) = manager
+            .call::<_, _, zbus::zvariant::OwnedObjectPath>("GetSession", &(id.as_str()))
+            .await
+        {
+            return Ok(path);
+        }
+    }
+
+    if let Ok(path) = manager
+        .call::<_, _, zbus::zvariant::OwnedObjectPath>("GetSessionByPID", &(std::process::id()))
+        .await
+    {
+        return Ok(path);
+    }
+
+    // (session_id, uid, user_name, seat_id, object_path)
+    type SessionRow = (String, u32, String, String, zbus::zvariant::OwnedObjectPath);
+    let sessions: Vec<SessionRow> = manager.call("ListSessions", &()).await?;
+    let uid = unsafe { libc::getuid() };
+    sessions
+        .into_iter()
+        .find(|(_, sess_uid, _, seat, _)| *sess_uid == uid && !seat.is_empty())
+        .map(|(_, _, _, _, path)| path)
+        .context("no seated logind session found for this user")
 }
 
 // ---------------------------------------------------------------- shutdown

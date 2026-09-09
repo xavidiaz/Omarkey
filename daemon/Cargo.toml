@@ -11,6 +11,10 @@ default-run = "omarkeyd"
 name = "omarkeyd"
 path = "src/main.rs"
 
+[[bin]]
+name = "omarkey"
+path = "src/bin/omarkey.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process", "signal"] }
 serde = { version = "1", features = ["derive"] }

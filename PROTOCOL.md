@@ -13,6 +13,10 @@ JSON** over a Unix domain socket.
 - Multiple concurrent clients are allowed. Every connection is independent; the
   vault state (locked/unlocked) is process-global.
 
+Two clients ship: `OmarkeyClient.qml` (the picker's bridge) and the `omarkey`
+CLI (`unlock`, `lock`, `status`, `list [query]`, `hello`), which is what a
+keybind or login hook uses to unlock.
+
 ## Message shapes
 
 ### Request (client → daemon)
@@ -106,6 +110,11 @@ Request: `{ "id": 3, "op": "unlock" }`
 - Optional `{ "password": "…", "keyfile": "/path" }` — inline unlock for headless
   setups. Discouraged; only honoured when `allow_inline_unlock = true` in the
   daemon config.
+
+**The picker (`Menu.qml`) never sends this while it is on screen** — its
+fullscreen layer-shell overlay would render on top of the pinentry prompt.
+Unlock is triggered from the `omarkey unlock` CLI, or from the picker's locked
+screen which closes the overlay first. Any client may still call it.
 
 Result: `{ "unlocked": true, "entryCount": 214 }`
 Errors: `auth-failed`, `vault-error`, `busy`.

@@ -15,7 +15,9 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/omarkeyd
+# `cargo install --path daemon` puts the binary here. Adjust if you install
+# it elsewhere (e.g. --root ~/.local).
+ExecStart=%h/.cargo/bin/omarkeyd
 Restart=on-failure
 RestartSec=2
 

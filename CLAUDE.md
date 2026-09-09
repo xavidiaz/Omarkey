@@ -25,6 +25,10 @@ any change to `daemon/src/ipc.rs` or `OmarkeyClient.qml`.
 - **The master password does not cross the socket** by default — `omarkeyd`
   runs its own `pinentry`. Inline-password `unlock` is gated behind
   `allow_inline_unlock` in the config and is for headless use only.
+- **The picker never triggers `unlock` while it is on screen.** The fullscreen
+  layer-shell overlay renders on top of the pinentry prompt, occluding it.
+  Unlock happens from the `omarkey` CLI (bind it to a key), or from the picker's
+  locked screen where Enter calls `dismiss()` *then* `client.unlock()`.
 - Decrypted data lives only in `vault::UnlockedVault`, wrapped in
   `secrecy::SecretString` so it zeroizes on drop. Every lock path drops it.
 - The plugin `kind` is **`overlay`**, NOT `menu`. `menu` is Omarchy's built-in
@@ -45,8 +49,10 @@ daemon/
   src/vault.rs         VaultState (Locked/Unlocking/Unlocked), keepass parsing,
                        fuzzy list, .kdbx file watch, tests
   src/security.rs      socket perms + peer-uid check, idle clock, logind
-                       Lock/PrepareForSleep auto-lock, pinentry (Assuan)
+                       session resolution + Lock/PrepareForSleep auto-lock,
+                       pinentry (Assuan)
   src/actions.rs       wl-copy / wl-paste-verify / wl-clear, wtype
+  src/bin/omarkey.rs   the `omarkey` CLI client (unlock/lock/status/list/hello)
   examples/make-sample-vault.rs   writes a throwaway .kdbx for testing
   omarkeyd.service     systemd user unit
   omarkeyd.example.toml
@@ -66,8 +72,14 @@ cargo fmt
 cargo run --example make-sample-vault -- /tmp/demo.kdbx demopass
 ```
 
-There is no automated check for the QML — it must be exercised against a running
-`omarchy-shell` (`omarchy-shell shell summon omarkey '{}'`).
+There is no automated check for the QML. To exercise it: copy `manifest.json`,
+`Menu.qml`, `OmarkeyClient.qml` to `~/.config/omarchy/plugins/omarkey/` (a real
+copy — symlinks are rejected), then `omarchy plugin enable omarkey`. **After any
+QML edit, run `omarchy-restart-shell`** — the plugin file-watcher does not
+reliably hot-reload, and `omarchy plugin disable/enable` + `rescanPlugins` is
+not enough. Summon with `omarchy-shell shell summon omarkey '{}'`; read logs
+with `qs -p /usr/share/omarchy/shell log`. Run the daemon for testing with
+`systemd-run --user --unit=omarkeyd-test ~/.cargo/bin/omarkeyd`.
 
 ## Dependencies of note
 
@@ -78,12 +90,15 @@ There is no automated check for the QML — it must be exercised against a runni
 - Runtime tools the daemon shells out to: `wl-clipboard` (`wl-copy`/`wl-paste`),
   `wtype`, `pinentry`. `zbus` talks to `org.freedesktop.login1` for auto-lock.
 
-## Status (2026-09-08)
+## Status (2026-09-09)
 
-Daemon works: build/test/clippy clean, verified end to end over the socket
-against a real `.kdbx` (unlock → list → get → copy + clipboard wipe → totp).
-Not yet proven: the QML side against a live shell, and the pinentry unlock path
-(only inline-password has been exercised).
+Working and tested live in `omarchy-shell`. Daemon: build/test/clippy clean,
+full socket flow verified against a real `.kdbx` (unlock → list → get → copy +
+clipboard wipe → totp). Plugin: loads with no QML errors, overlay renders and
+filters, picker → copy/type works, `omarkey unlock` shows a focusable pinentry
+with the overlay closed. `logind` session resolution now falls back through
+`XDG_SESSION_ID` → `GetSessionByPID` → `ListSessions` so auto-lock works when
+`omarkeyd` runs as a systemd `--user` unit.
 
 ## Conventions
 

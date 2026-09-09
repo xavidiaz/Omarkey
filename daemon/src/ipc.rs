@@ -48,7 +48,12 @@ pub struct ErrorBody {
 
 impl Response {
     fn ok(id: Option<i64>, result: Value) -> Self {
-        Response { id, ok: true, result: Some(result), error: None }
+        Response {
+            id,
+            ok: true,
+            result: Some(result),
+            error: None,
+        }
     }
 
     fn err(id: Option<i64>, err: IpcError) -> Self {
@@ -56,7 +61,10 @@ impl Response {
             id,
             ok: false,
             result: None,
-            error: Some(ErrorBody { code: err.code(), message: err.to_string() }),
+            error: Some(ErrorBody {
+                code: err.code(),
+                message: err.to_string(),
+            }),
         }
     }
 }
@@ -218,9 +226,7 @@ async fn dispatch(
                 ));
             }
             let mut vault = daemon.vault.lock().await;
-            let count = vault
-                .unlock(daemon, password, keyfile)
-                .await?;
+            let count = vault.unlock(daemon, password, keyfile).await?;
             Ok(json!({ "unlocked": true, "entryCount": count }))
         }
 
@@ -232,11 +238,7 @@ async fn dispatch(
 
         "list" => {
             let query = req.args.get("query").and_then(Value::as_str).unwrap_or("");
-            let limit = req
-                .args
-                .get("limit")
-                .and_then(Value::as_u64)
-                .unwrap_or(200) as usize;
+            let limit = req.args.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize;
             let vault = daemon.vault.lock().await;
             let entries = vault.list(query, limit)?;
             Ok(json!({ "entries": entries }))
@@ -248,7 +250,11 @@ async fn dispatch(
                 .args
                 .get("fields")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let vault = daemon.vault.lock().await;
             let fields = vault.get_fields(uuid, &fields)?;

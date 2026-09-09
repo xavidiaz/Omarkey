@@ -176,9 +176,9 @@ pub async fn type_tokens(tokens: &[TypeToken]) -> Result<()> {
 }
 
 async fn ensure_wtype() -> Result<()> {
-    which("wtype").await.context(
-        "wtype is not installed; install it or use `copy` instead of `type`",
-    )
+    which("wtype")
+        .await
+        .context("wtype is not installed; install it or use `copy` instead of `type`")
 }
 
 async fn which(program: &str) -> Result<()> {

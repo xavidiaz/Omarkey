@@ -41,6 +41,7 @@ Item {
   property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int rowHeight: Math.max(Style.space(44), Style.font.body * 2 + Style.spacing.md)
   property int contentSpacing: Style.spacing.md
+  property int statusRowHeight: Math.round(Style.font.caption * 1.4)
   property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(560), panel.height - Style.gapsOut * 2)
 
@@ -60,8 +61,10 @@ Item {
     }
     onVaultChanged: if (root.opened && !client.locked) root.refresh()
     onConnectionChanged: up => {
+      if (!root.opened) return
       if (!up) root.statusLine = "Waiting for omarkeyd…"
-      else if (client.locked) root.statusLine = ""
+      else if (client.locked) root.statusLine = "Press Enter to unlock  ·  or run  omarkey unlock"
+      else root.refresh()
     }
     onClipboardCleared: (uuid, field) => {
       root.statusLine = "Clipboard cleared"
@@ -94,14 +97,22 @@ Item {
       root.statusLine = "Waiting for omarkeyd…"
       return
     }
-    if (client.locked) {
-      resultModel.clear()
-      client.unlock((res, err) => {
-        if (err) root.statusLine = err.message || "Unlock failed"
-      })
-    } else {
-      root.refresh()
-    }
+
+    // Re-check state with the daemon — an `omarkey unlock` in another process
+    // may have landed just before this open(), before our event arrived.
+    client.status((res, err) => {
+      if (err || !root.opened) return
+      if (res.locked) {
+        // The picker never triggers unlock while it is on screen — this
+        // fullscreen overlay would occlude the daemon's pinentry prompt.
+        // Enter dismisses first, then asks the daemon to unlock.
+        resultModel.clear()
+        root.statusLine = "Press Enter to unlock  ·  or run  omarkey unlock"
+      } else {
+        root.statusLine = ""
+        root.refresh()
+      }
+    })
   }
 
   function close() {
@@ -117,6 +128,16 @@ Item {
   function toggle() {
     if (root.opened) root.dismiss()
     else root.open("{}")
+  }
+
+  // Dismiss the overlay, THEN ask the daemon to unlock — this fullscreen
+  // layer-shell surface renders on top of the pinentry prompt otherwise.
+  // The user re-summons once the vault is open.
+  function requestUnlock() {
+    root.dismiss()
+    Qt.callLater(() => client.unlock((res, err) => {
+      if (err) console.warn("omarkey: unlock failed:", err.message)
+    }))
   }
 
   function setFilter(next) {
@@ -254,6 +275,17 @@ Item {
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function (event) {
+          // Locked: the only actions are dismiss or unlock. Unlock must
+          // dismiss first so the daemon's pinentry prompt is not occluded.
+          if (client.locked) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+              root.requestUnlock()
+            else
+              root.dismiss()
+            event.accepted = true
+            return
+          }
+
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else root.dismiss()
@@ -317,11 +349,13 @@ Item {
           }
         }
 
-        // Result list
+        // Result list — always reserve the status row so this height never
+        // depends on a forward reference to statusText (that resolves to NaN
+        // during creation and collapses the whole area).
         Item {
           width: parent.width
-          height: parent.height - root.headerHeight - root.contentSpacing
-            - (root.statusLine ? statusText.height + root.contentSpacing : 0)
+          height: parent.height - root.headerHeight - root.statusRowHeight
+            - root.contentSpacing * 2
 
           ListView {
             id: resultList
@@ -425,7 +459,7 @@ Item {
             Text {
               textFormat: Text.PlainText
               text: !client.connected ? "omarkeyd is not running"
-                : client.locked ? "Unlocking…"
+                : client.locked ? "Vault locked"
                 : root.filterText ? "No matches for “" + root.filterText + "”"
                 : "Vault is empty"
               color: root.foreground
@@ -438,18 +472,24 @@ Item {
           }
         }
 
-        // Status line
-        Text {
-          id: statusText
-          textFormat: Text.PlainText
-          visible: root.statusLine !== ""
-          text: root.statusLine
-          color: root.foreground
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
+        // Status line — always occupies statusRowHeight (see result list note)
+        Item {
           width: parent.width
+          height: root.statusRowHeight
+
+          Text {
+            id: statusText
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            textFormat: Text.PlainText
+            visible: root.statusLine !== ""
+            text: root.statusLine
+            color: root.foreground
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
         }
       }
     }

@@ -107,8 +107,8 @@ impl VaultState {
 
         // NOTE: exact `keepass` API surface depends on the crate version; this
         // is the shape (open with key elements, walk the group tree).
-        let entries = open_kdbx(&config.vault_path, &secret, keyfile.as_deref())
-            .map_err(|e| match e {
+        let entries =
+            open_kdbx(&config.vault_path, &secret, keyfile.as_deref()).map_err(|e| match e {
                 KdbxError::WrongKey => IpcError::AuthFailed,
                 KdbxError::Other(msg) => IpcError::VaultError(msg),
             })?;
@@ -136,14 +136,14 @@ impl VaultState {
             .filter_map(|e| fuzzy_score(query, e).map(|s| (s, e)))
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.title.cmp(&b.1.title)));
-        Ok(scored.into_iter().take(limit).map(|(_, e)| e.meta()).collect())
+        Ok(scored
+            .into_iter()
+            .take(limit)
+            .map(|(_, e)| e.meta())
+            .collect())
     }
 
-    pub fn get_fields(
-        &self,
-        uuid: &str,
-        fields: &[String],
-    ) -> Result<Value, IpcError> {
+    pub fn get_fields(&self, uuid: &str, fields: &[String]) -> Result<Value, IpcError> {
         let entry = self.unlocked()?.find(uuid)?;
         let mut out = serde_json::Map::new();
         for field in fields {
@@ -196,9 +196,9 @@ impl VaultState {
                 "enter" | "return" => TypeToken::Key("Return".into()),
                 "escape" | "esc" => TypeToken::Key("Escape".into()),
                 _ if raw.starts_with('~') => {
-                    let ms = raw[1..].parse::<u64>().map_err(|_| {
-                        IpcError::BadRequest(format!("bad delay token `{raw}`"))
-                    })?;
+                    let ms = raw[1..]
+                        .parse::<u64>()
+                        .map_err(|_| IpcError::BadRequest(format!("bad delay token `{raw}`")))?;
                     TypeToken::Delay(Duration::from_millis(ms))
                 }
                 other => {
@@ -413,8 +413,8 @@ fn open_kdbx(
     use keepass::error::{DatabaseKeyError, DatabaseOpenError};
     use keepass::{Database, DatabaseKey};
 
-    let mut file =
-        std::fs::File::open(path).map_err(|e| KdbxError::Other(format!("open {}: {e}", path.display())))?;
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| KdbxError::Other(format!("open {}: {e}", path.display())))?;
 
     let mut key = DatabaseKey::new().with_password(password.expose_secret());
     if let Some(kf) = keyfile {
@@ -479,7 +479,9 @@ fn convert_entry(entry: &keepass::db::Entry, group: &str) -> Entry {
         url: entry.get_url().unwrap_or_default().to_owned(),
         group: group.to_owned(),
         tags: entry.tags.clone(),
-        password: entry.get_password().map(|p| SecretString::from(p.to_owned())),
+        password: entry
+            .get_password()
+            .map(|p| SecretString::from(p.to_owned())),
         notes: entry.get("Notes").map(|n| SecretString::from(n.to_owned())),
         string_fields,
         totp,
@@ -581,23 +583,39 @@ mod tests {
 
         let mut dev = KpGroup::new("Dev");
         let mut gh = KpEntry::new();
-        gh.fields.insert("Title".into(), Value::Unprotected("GitHub".into()));
-        gh.fields.insert("UserName".into(), Value::Unprotected("octocat".into()));
-        gh.fields.insert("URL".into(), Value::Unprotected("https://github.com".into()));
         gh.fields
-            .insert("Password".into(), Value::Protected("hunter2".as_bytes().into()));
-        gh.fields.insert("otp".into(), Value::Protected(OTP_URI.as_bytes().into()));
+            .insert("Title".into(), Value::Unprotected("GitHub".into()));
         gh.fields
-            .insert("API Token".into(), Value::Protected("ghp_secret".as_bytes().into()));
+            .insert("UserName".into(), Value::Unprotected("octocat".into()));
+        gh.fields.insert(
+            "URL".into(),
+            Value::Unprotected("https://github.com".into()),
+        );
+        gh.fields.insert(
+            "Password".into(),
+            Value::Protected("hunter2".as_bytes().into()),
+        );
+        gh.fields
+            .insert("otp".into(), Value::Protected(OTP_URI.as_bytes().into()));
+        gh.fields.insert(
+            "API Token".into(),
+            Value::Protected("ghp_secret".as_bytes().into()),
+        );
         dev.add_child(gh);
         db.root.add_child(dev);
 
         let mut email = KpEntry::new();
-        email.fields.insert("Title".into(), Value::Unprotected("Fastmail".into()));
-        email.fields.insert("UserName".into(), Value::Unprotected("me@example.com".into()));
         email
             .fields
-            .insert("Password".into(), Value::Protected("swordfish".as_bytes().into()));
+            .insert("Title".into(), Value::Unprotected("Fastmail".into()));
+        email.fields.insert(
+            "UserName".into(),
+            Value::Unprotected("me@example.com".into()),
+        );
+        email.fields.insert(
+            "Password".into(),
+            Value::Protected("swordfish".as_bytes().into()),
+        );
         db.root.add_child(email);
 
         let mut buf = Vec::new();
@@ -612,19 +630,29 @@ mod tests {
         let path = dir.path().join("t.kdbx");
         sample_kdbx(&path, "correct horse");
 
-        let entries = open_kdbx(&path, &SecretString::from("correct horse".to_string()), None)
-            .unwrap_or_else(|e| match e {
-                KdbxError::WrongKey => panic!("unexpected WrongKey"),
-                KdbxError::Other(m) => panic!("open failed: {m}"),
-            });
+        let entries = open_kdbx(
+            &path,
+            &SecretString::from("correct horse".to_string()),
+            None,
+        )
+        .unwrap_or_else(|e| match e {
+            KdbxError::WrongKey => panic!("unexpected WrongKey"),
+            KdbxError::Other(m) => panic!("open failed: {m}"),
+        });
 
         assert_eq!(entries.len(), 2);
 
-        let gh = entries.iter().find(|e| e.title == "GitHub").expect("GitHub entry");
+        let gh = entries
+            .iter()
+            .find(|e| e.title == "GitHub")
+            .expect("GitHub entry");
         assert_eq!(gh.username, "octocat");
         assert_eq!(gh.url, "https://github.com");
         assert_eq!(gh.group, "Dev");
-        assert_eq!(gh.password.as_ref().map(|p| p.expose_secret()), Some("hunter2"));
+        assert_eq!(
+            gh.password.as_ref().map(|p| p.expose_secret()),
+            Some("hunter2")
+        );
         assert!(gh.totp.is_some(), "otpauth URI should parse");
         assert_eq!(gh.totp.as_ref().unwrap().digits, 6);
         assert!(
@@ -632,11 +660,16 @@ mod tests {
             "custom field kept as a secret string"
         );
         assert!(
-            !gh.string_fields.keys().any(|k| STANDARD_FIELDS.contains(&k.as_str())),
+            !gh.string_fields
+                .keys()
+                .any(|k| STANDARD_FIELDS.contains(&k.as_str())),
             "standard fields must not leak into string_fields"
         );
 
-        let email = entries.iter().find(|e| e.title == "Fastmail").expect("Fastmail entry");
+        let email = entries
+            .iter()
+            .find(|e| e.title == "Fastmail")
+            .expect("Fastmail entry");
         assert_eq!(email.group, "", "entries at the root have no group path");
         assert!(email.totp.is_none());
     }
