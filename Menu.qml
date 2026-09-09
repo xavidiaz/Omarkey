@@ -86,6 +86,8 @@ Item {
     root.opened = true
     root.selectedIndex = 0
     root.cursorActive = false
+    root.filterText = ""
+    root.statusLine = ""
     Qt.callLater(() => keyCatcher.forceActiveFocus())
 
     if (!client.connected) {
@@ -93,7 +95,6 @@ Item {
       return
     }
     if (client.locked) {
-      root.filterText = ""
       resultModel.clear()
       client.unlock((res, err) => {
         if (err) root.statusLine = err.message || "Unlock failed"
